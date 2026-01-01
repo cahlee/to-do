@@ -4,8 +4,7 @@
  */
 
 // ==================== Constants ====================
-const STORAGE_STUDIES = 'study_tracker_studies';
-const STORAGE_RECORDS = 'study_tracker_records';
+const API_BASE_URL = '/api';
 const LONG_PRESS_DURATION = 500; // milliseconds
 const TIME_SLOTS = ['출근길', '아침', '점심', '퇴근길', '퇴근후', '기타'];
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
@@ -19,6 +18,55 @@ const state = {
     challengeViewMode: 'monthly', // 'monthly' or 'daily'
     selectedMonth: null
 };
+
+// ==================== API Utility Functions ====================
+async function apiRequest(endpoint, options = {}) {
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: '요청 처리 중 오류가 발생했습니다.' }));
+            throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        }
+
+        if (response.status === 204) {
+            return null;
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('API request failed:', error);
+        throw error;
+    }
+}
+
+async function apiGet(endpoint) {
+    return apiRequest(endpoint, { method: 'GET' });
+}
+
+async function apiPost(endpoint, data) {
+    return apiRequest(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(data)
+    });
+}
+
+async function apiPut(endpoint, data) {
+    return apiRequest(endpoint, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+    });
+}
+
+async function apiDelete(endpoint) {
+    return apiRequest(endpoint, { method: 'DELETE' });
+}
 
 // ==================== Initialization ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -86,19 +134,24 @@ function setupStudyPage() {
     }
 }
 
-function renderStudyPage() {
+async function renderStudyPage() {
     const grid = document.getElementById('study-grid');
     if (!grid) return;
     
-    const studies = getStudies();
-    
-    if (studies.length === 0) {
-        grid.innerHTML = '<p style="text-align: center; color: #999; padding: 2rem;">등록된 스터디가 없습니다.</p>';
-        return;
+    try {
+        const studies = await getStudies();
+        
+        if (studies.length === 0) {
+            grid.innerHTML = '<p style="text-align: center; color: #999; padding: 2rem;">등록된 스터디가 없습니다.</p>';
+            return;
+        }
+        
+        grid.innerHTML = studies.map(study => createStudyCardHTML(study)).join('');
+        attachStudyCardListeners();
+    } catch (error) {
+        console.error('Failed to render study page:', error);
+        grid.innerHTML = '<p style="text-align: center; color: #f00; padding: 2rem;">스터디 목록을 불러오는 중 오류가 발생했습니다.</p>';
     }
-    
-    grid.innerHTML = studies.map(study => createStudyCardHTML(study)).join('');
-    attachStudyCardListeners();
 }
 
 function createStudyCardHTML(study) {
@@ -167,7 +220,7 @@ function setupLongPressHandler(element, onLongPress, onClick) {
     element.addEventListener('touchcancel', endPress);
 }
 
-function openStudyModal(studyId = null) {
+async function openStudyModal(studyId = null) {
     const modal = document.getElementById('study-modal');
     const form = document.getElementById('study-form');
     const modalTitle = modal?.querySelector('h2');
@@ -180,24 +233,30 @@ function openStudyModal(studyId = null) {
     form.setAttribute('data-study-id', studyId || '');
     
     if (isEditMode) {
-        const study = getStudyById(studyId);
-        if (study) {
-            const categoryInput = document.getElementById('study-category');
-            const nameInput = document.getElementById('study-name');
-            if (categoryInput) categoryInput.value = study.category;
-            if (nameInput) nameInput.value = study.name;
+        try {
+            const study = await getStudyById(studyId);
+            if (study) {
+                const categoryInput = document.getElementById('study-category');
+                const nameInput = document.getElementById('study-name');
+                if (categoryInput) categoryInput.value = study.category;
+                if (nameInput) nameInput.value = study.name;
+            }
+        } catch (error) {
+            console.error('Failed to load study:', error);
+            alert('스터디 정보를 불러오는 중 오류가 발생했습니다.');
+            return;
         }
     }
     
     modal.classList.add('active');
     
-    form.onsubmit = (e) => {
+    form.onsubmit = async (e) => {
         e.preventDefault();
-        handleStudyFormSubmit(studyId);
+        await handleStudyFormSubmit(studyId);
     };
 }
 
-function handleStudyFormSubmit(studyId) {
+async function handleStudyFormSubmit(studyId) {
     const categoryInput = document.getElementById('study-category');
     const nameInput = document.getElementById('study-name');
     const form = document.getElementById('study-form');
@@ -215,26 +274,32 @@ function handleStudyFormSubmit(studyId) {
     
     try {
         if (studyId) {
-            updateStudy(studyId, category, name);
+            await updateStudy(studyId, category, name);
         } else {
-            addStudy(category, name);
+            await addStudy(category, name);
         }
         form.setAttribute('data-study-id', '');
         modal.classList.remove('active');
-        renderStudyPage();
+        await renderStudyPage();
     } catch (error) {
         console.error('Failed to save study:', error);
-        alert('스터디 저장 중 오류가 발생했습니다.');
+        alert('스터디 저장 중 오류가 발생했습니다: ' + error.message);
     }
 }
 
-function openEditStudyModal(studyId) {
-    const study = getStudyById(studyId);
-    if (!study) {
-        console.warn('Study not found:', studyId);
-        return;
+async function openEditStudyModal(studyId) {
+    try {
+        const study = await getStudyById(studyId);
+        if (!study) {
+            console.warn('Study not found:', studyId);
+            alert('스터디를 찾을 수 없습니다.');
+            return;
+        }
+        openStudyModal(studyId);
+    } catch (error) {
+        console.error('Failed to load study:', error);
+        alert('스터디 정보를 불러오는 중 오류가 발생했습니다.');
     }
-    openStudyModal(studyId);
 }
 
 function openTimeModal(studyId) {
@@ -253,13 +318,13 @@ function openTimeModal(studyId) {
     
     modal.classList.add('active');
     
-    form.onsubmit = (e) => {
+    form.onsubmit = async (e) => {
         e.preventDefault();
-        handleTimeFormSubmit(studyId);
+        await handleTimeFormSubmit(studyId);
     };
 }
 
-function handleTimeFormSubmit(studyId) {
+async function handleTimeFormSubmit(studyId) {
     const dateInput = document.getElementById('time-date');
     const timeSlotInput = document.getElementById('time-slot');
     const durationInput = document.getElementById('time-duration');
@@ -277,14 +342,14 @@ function handleTimeFormSubmit(studyId) {
     }
     
     try {
-        addStudyRecord(studyId, date, timeSlot, duration);
+        await addStudyRecord(studyId, date, timeSlot, duration);
         modal.classList.remove('active');
         if (state.currentPage === 'challenge') {
-            renderChallengePage();
+            await renderChallengePage();
         }
     } catch (error) {
         console.error('Failed to save study record:', error);
-        alert('기록 저장 중 오류가 발생했습니다.');
+        alert('기록 저장 중 오류가 발생했습니다: ' + error.message);
     }
 }
 
@@ -319,72 +384,77 @@ function updateYearDisplay() {
     }
 }
 
-function renderChallengePage() {
+async function renderChallengePage() {
     if (state.challengeViewMode === 'monthly') {
-        renderMonthlyView();
+        await renderMonthlyView();
     } else {
-        renderDailyView();
+        await renderDailyView();
     }
 }
 
-function renderMonthlyView() {
+async function renderMonthlyView() {
     const tbody = document.getElementById('challenge-tbody');
     if (!tbody) return;
     
-    const records = getStudyRecords();
-    const yearRecords = filterRecordsByYear(records, state.currentYear);
-    const recordsByMonth = groupRecordsByMonth(yearRecords);
-    
-    tbody.innerHTML = Array.from({ length: 12 }, (_, month) => {
-        const monthRecords = recordsByMonth[month] || [];
-        const { totals, studyNames } = calculateTotals(monthRecords);
-        const total = Object.values(totals).reduce((sum, val) => sum + val, 0);
-        const studyList = Array.from(studyNames).join(', ');
+    try {
+        const summaries = await apiGet(`/challenge/monthly/${state.currentYear}`);
         
-        return createMonthlyRowHTML(month, totals, total, studyList);
-    }).join('');
-    
-    attachMonthlyRowListeners();
+        tbody.innerHTML = summaries.map(summary => {
+            const totals = summary.timeSlotTotals || {};
+            const total = summary.totalDuration || 0;
+            const studyList = (summary.studyNames || []).join(', ');
+            const month = summary.month;
+            
+            return createMonthlyRowHTML(month, totals, total, studyList);
+        }).join('');
+        
+        attachMonthlyRowListeners();
+    } catch (error) {
+        console.error('Failed to render monthly view:', error);
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #f00;">데이터를 불러오는 중 오류가 발생했습니다.</td></tr>';
+    }
 }
 
-function renderDailyView() {
+async function renderDailyView() {
     const tbody = document.getElementById('challenge-tbody');
     if (!tbody) return;
     
     if (state.selectedMonth === null) {
         state.challengeViewMode = 'monthly';
-        renderChallengePage();
+        await renderChallengePage();
         return;
     }
     
-    const records = getStudyRecords();
-    const monthRecords = filterRecordsByYearAndMonth(records, state.currentYear, state.selectedMonth);
-    const recordsByDate = groupRecordsByDate(monthRecords);
-    const days = getAllDaysOfMonth(state.currentYear, state.selectedMonth);
-    
-    const backButton = '<tr><td colspan="10" style="text-align: center; padding: 1rem;"><button id="back-to-monthly-btn" class="btn btn-primary">월별 보기로 돌아가기</button></td></tr>';
-    
-    const daysHtml = days.map(day => {
-        const dateKey = formatDateForStorage(day);
-        const dayRecords = recordsByDate[dateKey] || [];
-        const { totals, studyNames } = calculateTotals(dayRecords);
-        const total = Object.values(totals).reduce((sum, val) => sum + val, 0);
-        const studyList = Array.from(studyNames).join(', ');
-        const memo = dayRecords.length > 0 ? (dayRecords[0].memo || '') : '';
-        const dateStr = formatDateString(day);
+    try {
+        const summaries = await apiGet(`/challenge/daily/${state.currentYear}/${state.selectedMonth + 1}`);
         
-        return createDailyRowHTML(dateKey, dateStr, totals, total, studyList, memo);
-    }).join('');
-    
-    tbody.innerHTML = backButton + daysHtml;
-    
-    attachDailyViewListeners();
+        const backButton = '<tr><td colspan="10" style="text-align: center; padding: 1rem;"><button id="back-to-monthly-btn" class="btn btn-primary">월별 보기로 돌아가기</button></td></tr>';
+        
+        const daysHtml = summaries.map(summary => {
+            const date = summary.date;
+            const dateKey = formatDateForStorage(date);
+            const dateStr = formatDateString(date);
+            const totals = summary.timeSlotTotals || {};
+            const total = summary.totalDuration || 0;
+            const studyList = (summary.studyNames || []).join(', ');
+            const memo = summary.memo || '';
+            
+            return createDailyRowHTML(dateKey, dateStr, totals, total, studyList, memo);
+        }).join('');
+        
+        tbody.innerHTML = backButton + daysHtml;
+        
+        attachDailyViewListeners();
+    } catch (error) {
+        console.error('Failed to render daily view:', error);
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #f00;">데이터를 불러오는 중 오류가 발생했습니다.</td></tr>';
+    }
 }
 
 function createMonthlyRowHTML(month, totals, total, studyList) {
     return `
         <tr class="month-row clickable" data-month="${month}">
-            <td class="date-cell">${MONTH_NAMES[month]}</td>
+            <td class="date-cell">${MONTH_NAMES[month - 1]}</td>
             ${TIME_SLOTS.map(slot => `<td class="time-cell">${totals[slot] > 0 ? totals[slot] + '분' : ''}</td>`).join('')}
             <td class="total-cell">${total > 0 ? total + '분' : ''}</td>
             <td class="study-list-cell">${escapeHtml(studyList)}</td>
@@ -414,7 +484,7 @@ function attachMonthlyRowListeners() {
         row.addEventListener('click', () => {
             const month = parseInt(row.getAttribute('data-month'));
             if (!isNaN(month)) {
-                state.selectedMonth = month;
+                state.selectedMonth = month - 1; // Convert to 0-based index
                 state.challengeViewMode = 'daily';
                 renderChallengePage();
             }
@@ -462,7 +532,7 @@ function attachDailyViewListeners() {
     });
 }
 
-function setupMemoInput(display) {
+async function setupMemoInput(display) {
     const date = display.getAttribute('data-date');
     if (!date) return;
     
@@ -480,24 +550,25 @@ function setupMemoInput(display) {
     input.focus();
     input.select();
     
-    const saveMemo = () => {
+    const saveMemo = async () => {
         const memo = input.value.trim();
         try {
-            updateMemo(date, memo);
+            await updateMemo(date, memo);
             input.remove();
             display.style.display = '';
             display.innerHTML = memo ? escapeHtml(memo) : '<span class="memo-placeholder">메모 입력</span>';
         } catch (error) {
             console.error('Failed to save memo:', error);
+            alert('메모 저장 중 오류가 발생했습니다: ' + error.message);
             input.remove();
             display.style.display = '';
         }
     };
     
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            saveMemo();
+            await saveMemo();
         } else if (e.key === 'Escape') {
             e.preventDefault();
             input.remove();
@@ -508,121 +579,53 @@ function setupMemoInput(display) {
     input.addEventListener('blur', saveMemo);
 }
 
-// ==================== Data Processing ====================
-function filterRecordsByYear(records, year) {
-    return records.filter(record => {
-        try {
-            const recordDate = new Date(record.date);
-            return recordDate.getFullYear() === year;
-        } catch (error) {
-            console.warn('Invalid date in record:', record);
-            return false;
-        }
-    });
-}
-
-function filterRecordsByYearAndMonth(records, year, month) {
-    return records.filter(record => {
-        try {
-            const recordDate = new Date(record.date);
-            return recordDate.getFullYear() === year && recordDate.getMonth() === month;
-        } catch (error) {
-            console.warn('Invalid date in record:', record);
-            return false;
-        }
-    });
-}
-
-function groupRecordsByMonth(records) {
-    const grouped = {};
-    records.forEach(record => {
-        try {
-            const recordDate = new Date(record.date);
-            const month = recordDate.getMonth();
-            if (!grouped[month]) {
-                grouped[month] = [];
-            }
-            grouped[month].push(record);
-        } catch (error) {
-            console.warn('Invalid date in record:', record);
-        }
-    });
-    return grouped;
-}
-
-function groupRecordsByDate(records) {
-    const grouped = {};
-    records.forEach(record => {
-        const dateKey = record.date;
-        if (!grouped[dateKey]) {
-            grouped[dateKey] = [];
-        }
-        grouped[dateKey].push(record);
-    });
-    return grouped;
-}
-
-function calculateTotals(records) {
-    const totals = TIME_SLOTS.reduce((acc, slot) => {
-        acc[slot] = 0;
-        return acc;
-    }, {});
-    
-    const studyNames = new Set();
-    
-    records.forEach(record => {
-        if (TIME_SLOTS.includes(record.timeSlot)) {
-            totals[record.timeSlot] += record.duration || 0;
-        }
-        const study = getStudyById(record.studyId);
-        if (study) {
-            studyNames.add(study.name);
-        }
-    });
-    
-    return { totals, studyNames };
-}
-
 // ==================== Edit Modal ====================
-function openEditModal(date, slot) {
+async function openEditModal(date, slot) {
     if (!date) return;
     
     state.editingDate = date;
     const modal = document.getElementById('edit-modal');
-    const records = getStudyRecords();
     
     if (!modal) return;
     
-    const dateRecords = records.filter(r => r.date === date);
-    const filteredRecords = slot ? dateRecords.filter(r => r.timeSlot === slot) : dateRecords;
-    const editList = document.getElementById('edit-records-list');
-    
-    if (!editList) return;
-    
-    let recordsHtml = '';
-    if (filteredRecords.length === 0) {
-        recordsHtml = '<p style="color: #999; margin-bottom: 1rem;">기록이 없습니다.</p>';
-    } else {
-        recordsHtml = filteredRecords.map(record => createEditRecordItemHTML(record)).join('');
+    try {
+        const records = await getStudyRecordsByDate(date);
+        const filteredRecords = slot ? records.filter(r => r.timeSlot === slot) : records;
+        const editList = document.getElementById('edit-records-list');
+        
+        if (!editList) return;
+        
+        let recordsHtml = '';
+        if (filteredRecords.length === 0) {
+            recordsHtml = '<p style="color: #999; margin-bottom: 1rem;">기록이 없습니다.</p>';
+        } else {
+            recordsHtml = await Promise.all(
+                filteredRecords.map(record => createEditRecordItemHTML(record))
+            ).then(htmls => htmls.join(''));
+        }
+        
+        const studies = await getStudies();
+        recordsHtml += createAddRecordSectionHTML(studies);
+        editList.innerHTML = recordsHtml;
+        
+        attachEditModalListeners(date, slot);
+        
+        const memoData = await apiGet(`/memos/${date}`).catch(() => null);
+        const memo = memoData ? memoData.memo : '';
+        const memoInput = document.getElementById('edit-memo');
+        if (memoInput) {
+            memoInput.value = memo || '';
+        }
+        
+        modal.classList.add('active');
+    } catch (error) {
+        console.error('Failed to open edit modal:', error);
+        alert('기록을 불러오는 중 오류가 발생했습니다: ' + error.message);
     }
-    
-    recordsHtml += createAddRecordSectionHTML();
-    editList.innerHTML = recordsHtml;
-    
-    attachEditModalListeners(date, slot);
-    
-    const memo = dateRecords.length > 0 ? (dateRecords[0].memo || '') : '';
-    const memoInput = document.getElementById('edit-memo');
-    if (memoInput) {
-        memoInput.value = memo;
-    }
-    
-    modal.classList.add('active');
 }
 
-function createEditRecordItemHTML(record) {
-    const study = getStudyById(record.studyId);
-    const studyName = study ? study.name : '알 수 없음';
+async function createEditRecordItemHTML(record) {
+    const studyName = record.studyName || '알 수 없음';
     
     return `
         <div class="edit-record-item" data-record-id="${record.id}">
@@ -642,8 +645,7 @@ function createEditRecordItemHTML(record) {
     `;
 }
 
-function createAddRecordSectionHTML() {
-    const studies = getStudies();
+function createAddRecordSectionHTML(studies) {
     const studiesOptions = studies.map(s => 
         `<option value="${s.id}">${escapeHtml(s.category)} - ${escapeHtml(s.name)}</option>`
     ).join('');
@@ -683,15 +685,15 @@ function createAddRecordSectionHTML() {
 function attachEditModalListeners(date, slot) {
     // Delete buttons
     document.querySelectorAll('.delete-record-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const recordId = btn.getAttribute('data-record-id');
             if (recordId) {
                 try {
-                    deleteStudyRecord(recordId);
-                    openEditModal(date, slot);
+                    await deleteStudyRecord(recordId);
+                    await openEditModal(date, slot);
                 } catch (error) {
                     console.error('Failed to delete record:', error);
-                    alert('기록 삭제 중 오류가 발생했습니다.');
+                    alert('기록 삭제 중 오류가 발생했습니다: ' + error.message);
                 }
             }
         });
@@ -700,21 +702,21 @@ function attachEditModalListeners(date, slot) {
     // Add record button
     const addRecordBtn = document.getElementById('add-record-btn');
     if (addRecordBtn) {
-        addRecordBtn.addEventListener('click', () => {
-            handleAddRecord(date, slot);
+        addRecordBtn.addEventListener('click', async () => {
+            await handleAddRecord(date, slot);
         });
     }
     
     // Save button
     const saveBtn = document.getElementById('save-edit-btn');
     if (saveBtn) {
-        saveBtn.onclick = () => {
-            handleSaveEdit(date);
+        saveBtn.onclick = async () => {
+            await handleSaveEdit(date);
         };
     }
 }
 
-function handleAddRecord(date, slot) {
+async function handleAddRecord(date, slot) {
     const studySelect = document.getElementById('add-record-study');
     const slotSelect = document.getElementById('add-record-slot');
     const durationInput = document.getElementById('add-record-duration');
@@ -731,36 +733,39 @@ function handleAddRecord(date, slot) {
     }
     
     try {
-        addStudyRecord(studyId, date, timeSlot, duration);
-        openEditModal(date, slot);
+        await addStudyRecord(studyId, date, timeSlot, duration);
+        await openEditModal(date, slot);
     } catch (error) {
         console.error('Failed to add record:', error);
-        alert('기록 추가 중 오류가 발생했습니다.');
+        alert('기록 추가 중 오류가 발생했습니다: ' + error.message);
     }
 }
 
-function handleSaveEdit(date) {
+async function handleSaveEdit(date) {
     const modal = document.getElementById('edit-modal');
     
     // Update durations
+    const updatePromises = [];
     document.querySelectorAll('.edit-duration-input').forEach(input => {
         const recordId = input.getAttribute('data-record-id');
         const duration = parseInt(input.value);
         if (recordId && duration > 0) {
-            try {
-                updateStudyRecordDuration(recordId, duration);
-            } catch (error) {
-                console.error('Failed to update record duration:', error);
-            }
+            updatePromises.push(
+                updateStudyRecordDuration(recordId, duration).catch(error => {
+                    console.error('Failed to update record duration:', error);
+                })
+            );
         }
     });
+    
+    await Promise.all(updatePromises);
     
     // Update memo
     const memoInput = document.getElementById('edit-memo');
     if (memoInput) {
         const memo = memoInput.value.trim();
         try {
-            updateMemo(date, memo);
+            await updateMemo(date, memo);
         } catch (error) {
             console.error('Failed to update memo:', error);
         }
@@ -769,7 +774,7 @@ function handleSaveEdit(date) {
     if (modal) {
         modal.classList.remove('active');
     }
-    renderChallengePage();
+    await renderChallengePage();
 }
 
 // ==================== Modals ====================
@@ -795,84 +800,67 @@ function setupModals() {
 }
 
 // ==================== Data Management ====================
-function getStudies() {
+async function getStudies() {
     try {
-        const data = localStorage.getItem(STORAGE_STUDIES);
-        return data ? JSON.parse(data) : [];
+        return await apiGet('/studies');
     } catch (error) {
         console.error('Failed to get studies:', error);
-        return [];
-    }
-}
-
-function saveStudies(studies) {
-    try {
-        localStorage.setItem(STORAGE_STUDIES, JSON.stringify(studies));
-    } catch (error) {
-        console.error('Failed to save studies:', error);
         throw error;
     }
 }
 
-function addStudy(category, name) {
+async function getStudyById(id) {
+    if (!id) return null;
+    try {
+        return await apiGet(`/studies/${id}`);
+    } catch (error) {
+        console.error('Failed to get study:', error);
+        throw error;
+    }
+}
+
+async function addStudy(category, name) {
     if (!category || !name) {
         throw new Error('Category and name are required');
     }
     
-    const studies = getStudies();
-    const newStudy = {
-        id: Date.now().toString(),
-        category: category.trim(),
-        name: name.trim()
-    };
-    studies.push(newStudy);
-    saveStudies(studies);
-    return newStudy;
-}
-
-function updateStudy(studyId, category, name) {
-    if (!studyId || !category || !name) {
-        throw new Error('Study ID, category and name are required');
-    }
-    
-    const studies = getStudies();
-    const study = studies.find(s => s.id === studyId);
-    if (!study) {
-        throw new Error('Study not found');
-    }
-    
-    study.category = category.trim();
-    study.name = name.trim();
-    saveStudies(studies);
-    return study;
-}
-
-function getStudyById(id) {
-    if (!id) return null;
-    const studies = getStudies();
-    return studies.find(s => s.id === id) || null;
-}
-
-function getStudyRecords() {
     try {
-        const data = localStorage.getItem(STORAGE_RECORDS);
-        return data ? JSON.parse(data) : [];
+        return await apiPost('/studies', {
+            category: category.trim(),
+            name: name.trim()
+        });
     } catch (error) {
-        console.error('Failed to get study records:', error);
-        return [];
-    }
-}
-
-function saveStudyRecords(records) {
-    try {
-        localStorage.setItem(STORAGE_RECORDS, JSON.stringify(records));
-    } catch (error) {
-        console.error('Failed to save study records:', error);
+        console.error('Failed to add study:', error);
         throw error;
     }
 }
 
-function addStudyRecord(studyId, date, timeSlot, duration) {
+async function updateStudy(studyId, category, name) {
+    if (!studyId || !category || !name) {
+        throw new Error('Study ID, category and name are required');
+    }
+    
+    try {
+        return await apiPut(`/studies/${studyId}`, {
+            category: category.trim(),
+            name: name.trim()
+        });
+    } catch (error) {
+        console.error('Failed to update study:', error);
+        throw error;
+    }
+}
+
+async function getStudyRecordsByDate(date) {
+    try {
+        return await apiGet(`/records?date=${date}`);
+    } catch (error) {
+        console.error('Failed to get study records:', error);
+        throw error;
+    }
+}
+
+async function addStudyRecord(studyId, date, timeSlot, duration) {
     if (!studyId || !date || !timeSlot || !duration || duration <= 0) {
         throw new Error('Invalid record data');
     }
@@ -881,59 +869,70 @@ function addStudyRecord(studyId, date, timeSlot, duration) {
         throw new Error('Invalid time slot');
     }
     
-    const records = getStudyRecords();
-    const newRecord = {
-        id: Date.now().toString(),
-        studyId: studyId,
-        date: date,
-        timeSlot: timeSlot,
-        duration: duration
-    };
-    records.push(newRecord);
-    saveStudyRecords(records);
-    return newRecord;
+    try {
+        // Convert studyId to number if it's a string
+        const studyIdNum = typeof studyId === 'string' ? parseInt(studyId) : studyId;
+        
+        return await apiPost('/records', {
+            studyId: studyIdNum,
+            date: date,
+            timeSlot: timeSlot,
+            duration: duration
+        });
+    } catch (error) {
+        console.error('Failed to add study record:', error);
+        throw error;
+    }
 }
 
-function updateStudyRecordDuration(recordId, duration) {
+async function updateStudyRecordDuration(recordId, duration) {
     if (!recordId || !duration || duration <= 0) {
         throw new Error('Invalid record ID or duration');
     }
     
-    const records = getStudyRecords();
-    const record = records.find(r => r.id === recordId);
-    if (!record) {
-        throw new Error('Record not found');
+    try {
+        // Get existing record
+        const record = await apiGet(`/records/${recordId}`);
+        if (!record) {
+            throw new Error('Record not found');
+        }
+        
+        // Update only duration
+        return await apiPut(`/records/${recordId}`, {
+            studyId: record.studyId,
+            date: record.date,
+            timeSlot: record.timeSlot,
+            duration: duration
+        });
+    } catch (error) {
+        console.error('Failed to update record duration:', error);
+        throw error;
     }
-    
-    record.duration = duration;
-    saveStudyRecords(records);
-    return record;
 }
 
-function deleteStudyRecord(recordId) {
+async function deleteStudyRecord(recordId) {
     if (!recordId) {
         throw new Error('Record ID is required');
     }
     
-    const records = getStudyRecords();
-    const filtered = records.filter(r => r.id !== recordId);
-    if (filtered.length === records.length) {
-        throw new Error('Record not found');
+    try {
+        await apiDelete(`/records/${recordId}`);
+    } catch (error) {
+        console.error('Failed to delete record:', error);
+        throw error;
     }
-    saveStudyRecords(filtered);
 }
 
-function updateMemo(date, memo) {
+async function updateMemo(date, memo) {
     if (!date) return;
     
-    const records = getStudyRecords();
-    const dateRecords = records.filter(r => r.date === date);
-    
-    if (dateRecords.length > 0) {
-        dateRecords.forEach(record => {
-            record.memo = memo || '';
+    try {
+        await apiPut(`/memos/${date}`, {
+            memo: memo || ''
         });
-        saveStudyRecords(records);
+    } catch (error) {
+        console.error('Failed to update memo:', error);
+        throw error;
     }
 }
 
@@ -958,25 +957,11 @@ function formatDateForStorage(date) {
 
 function formatDateString(date) {
     if (!date) return '';
-    const d = new Date(date);
+    const d = typeof date === 'string' ? new Date(date) : date;
     if (isNaN(d.getTime())) return '';
     
     const dayOfWeek = DAYS_OF_WEEK[d.getDay()];
     return `${d.getMonth() + 1}/${d.getDate()}(${dayOfWeek})`;
-}
-
-function getAllDaysOfMonth(year, month) {
-    if (month < 0 || month > 11) return [];
-    
-    const days = [];
-    const start = new Date(year, month, 1);
-    const end = new Date(year, month + 1, 0);
-    
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        days.push(new Date(d));
-    }
-    
-    return days;
 }
 
 function escapeHtml(text) {
@@ -993,16 +978,12 @@ if (typeof module !== 'undefined' && module.exports) {
         addStudy,
         updateStudy,
         getStudyById,
-        getStudyRecords,
         addStudyRecord,
         updateStudyRecordDuration,
         deleteStudyRecord,
         updateMemo,
         formatDateForInput,
         formatDateString,
-        escapeHtml,
-        calculateTotals,
-        filterRecordsByYear,
-        filterRecordsByYearAndMonth
+        escapeHtml
     };
 }
