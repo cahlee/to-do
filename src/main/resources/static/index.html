@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">📚 Study Tracker</div>
+            <ul class="nav-menu">
+                <li><a href="#" class="nav-link active" data-page="study">Study</a></li>
+                <li><a href="#" class="nav-link" data-page="challenge">Challenge</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <!-- Study Page -->
+        <div id="study-page" class="page active">
+            <div class="page-header">
+                <h1>스터디 관리</h1>
+                <button id="add-study-btn" class="btn btn-primary">스터디 등록</button>
+            </div>
+            <div id="study-grid" class="study-grid"></div>
+        </div>
+
+        <!-- Challenge Page -->
+        <div id="challenge-page" class="page">
+            <div class="page-header">
+                <h1>챌린지</h1>
+                <div class="year-selector">
+                    <button id="prev-year-btn" class="btn-icon">◀</button>
+                    <span id="current-year" class="year-display">2024</span>
+                    <button id="next-year-btn" class="btn-icon">▶</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table id="challenge-table" class="challenge-table">
+                    <thead>
+                        <tr>
+                            <th>날짜</th>
+                            <th>출근길</th>
+                            <th>아침</th>
+                            <th>점심</th>
+                            <th>퇴근길</th>
+                            <th>퇴근후</th>
+                            <th>기타</th>
+                            <th>합계</th>
+                            <th>스터디 목록</th>
+                            <th>메모</th>
+                        </tr>
+                    </thead>
+                    <tbody id="challenge-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Study Registration Modal -->
+    <div id="study-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>스터디 등록</h2>
+            <form id="study-form">
+                <div class="form-group">
+                    <label for="study-category">카테고리</label>
+                    <input type="text" id="study-category" required>
+                </div>
+                <div class="form-group">
+                    <label for="study-name">스터디명</label>
+                    <input type="text" id="study-name" required>
+                </div>
+                <button type="submit" class="btn btn-primary">등록</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Time Entry Modal -->
+    <div id="time-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>스터디 시간 입력</h2>
+            <form id="time-form">
+                <input type="hidden" id="time-study-id">
+                <div class="form-group">
+                    <label for="time-date">날짜</label>
+                    <input type="date" id="time-date" required>
+                </div>
+                <div class="form-group">
+                    <label for="time-slot">언제</label>
+                    <select id="time-slot" required>
+                        <option value="">선택하세요</option>
+                        <option value="출근길">출근길</option>
+                        <option value="아침">아침</option>
+                        <option value="점심">점심</option>
+                        <option value="퇴근길">퇴근길</option>
+                        <option value="퇴근후">퇴근후</option>
+                        <option value="기타">기타</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="time-duration">수행 시간 (분)</label>
+                    <input type="number" id="time-duration" min="1" required>
+                </div>
+                <button type="submit" class="btn btn-primary">저장</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Record Edit Modal -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>기록 수정</h2>
+            <div id="edit-records-list"></div>
+            <div class="form-group">
+                <label for="edit-memo">메모</label>
+                <input type="text" id="edit-memo">
+            </div>
+            <button type="button" id="save-edit-btn" class="btn btn-primary">저장</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <!-- Uncomment the line below to run tests -->
+    <!-- <script src="test.js"></script> -->
+</body>
+</html>
+
